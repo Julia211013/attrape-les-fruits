@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Attrape les Fruits</title>
+<style>
+  :root { --bg1:#1e1b4b; --bg2:#4c1d95; --fg:#fff; --accent:#facc15; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { height:100%; overflow:hidden; background:linear-gradient(180deg,var(--bg1),var(--bg2)); color:var(--fg);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif; touch-action:none; user-select:none; }
+  canvas { display:block; width:100vw; height:100vh; }
+  #hud { position:fixed; top:12px; left:16px; right:16px; display:flex; justify-content:space-between; font-weight:700; font-size:20px; pointer-events:none; }
+  #overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+    background:rgba(15,10,40,.7); text-align:center; padding:16px; }
+  #overlay h1 { font-size:clamp(32px,8vw,56px); }
+  #overlay p { opacity:.85; max-width:420px; line-height:1.5; }
+  button { font:inherit; font-size:20px; font-weight:700; padding:14px 32px; border:0; border-radius:999px; background:var(--accent); color:#1e1b4b; cursor:pointer; }
+  button:hover { transform:scale(1.05); }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><span id="score">Score : 0</span><span id="lives">❤️❤️❤️</span></div>
+<div id="overlay">
+  <h1>🧺 Attrape les Fruits</h1>
+  <p id="msg">Déplace le panier avec la souris, le doigt ou les flèches ← →.<br>Attrape les fruits 🍎🍌🍇, évite les bombes 💣 !</p>
+  <p id="best"></p>
+  <button id="play">Jouer</button>
+</div>
+<script>
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+const FRUITS = ['🍎','🍌','🍇','🍓','🍊','🍉','🍒'];
+let W, H, dpr, basket, items, score, lives, running, spawnT, speed, keys = {}, last;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1; W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize', resize); resize();
+
+function best() { try { return +localStorage.getItem('fruits-best') || 0; } catch { return 0; } }
+function saveBest(s) { try { localStorage.setItem('fruits-best', s); } catch {} }
+function showBest() { const b = best(); $('best').textContent = b ? `Meilleur score : ${b}` : ''; }
+showBest();
+
+function start() {
+  basket = { x: W/2, w: 90, y: H - 70 };
+  items = []; score = 0; lives = 3; spawnT = 0; speed = 160; running = true; last = performance.now();
+  $('overlay').classList.add('hidden'); updateHud(); requestAnimationFrame(loop);
+}
+function updateHud() { $('score').textContent = `Score : ${score}`; $('lives').textContent = '❤️'.repeat(lives) + '🖤'.repeat(3 - lives); }
+
+function spawn() {
+  const bomb = Math.random() < Math.min(0.12 + score / 400, 0.35);
+  items.push({ x: 30 + Math.random() * (W - 60), y: -30, e: bomb ? '💣' : FRUITS[Math.random() * FRUITS.length | 0],
+    bomb, v: speed * (0.8 + Math.random() * 0.5), rot: 0, vr: (Math.random() - .5) * 4 });
+}
+
+function loop(t) {
+  if (!running) return;
+  const dt = Math.min((t - last) / 1000, 0.05); last = t;
+  if (keys.ArrowLeft) basket.x -= 520 * dt;
+  if (keys.ArrowRight) basket.x += 520 * dt;
+  basket.x = Math.max(basket.w/2, Math.min(W - basket.w/2, basket.x)); basket.y = H - 70;
+
+  speed += 4 * dt;
+  spawnT -= dt;
+  if (spawnT <= 0) { spawn(); spawnT = Math.max(0.35, 1.1 - score / 150); }
+
+  for (const it of items) { it.y += it.v * dt; it.rot += it.vr * dt; }
+  items = items.filter(it => {
+    const caught = it.y > basket.y - 20 && it.y < basket.y + 25 && Math.abs(it.x - basket.x) < basket.w/2 + 10;
+    if (caught) {
+      if (it.bomb) { lives = 0; } else { score++; }
+      updateHud(); return false;
+    }
+    if (it.y > H + 30) { if (!it.bomb) { lives--; updateHud(); } return false; }
+    return true;
+  });
+
+  draw();
+  if (lives <= 0) return gameOver();
+  requestAnimationFrame(loop);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '36px serif';
+  for (const it of items) { ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot); ctx.fillText(it.e, 0, 0); ctx.restore(); }
+  ctx.font = '64px serif'; ctx.fillText('🧺', basket.x, basket.y);
+}
+
+function gameOver() {
+  running = false;
+  const isBest = score > best(); if (isBest) saveBest(score);
+  $('overlay').querySelector('h1').textContent = isBest ? '🏆 Nouveau record !' : '💥 Perdu !';
+  $('msg').innerHTML = `Tu as attrapé <b>${score}</b> fruit${score > 1 ? 's' : ''}.`;
+  showBest(); $('play').textContent = 'Rejouer';
+  $('overlay').classList.remove('hidden');
+}
+
+$('play').onclick = start;
+addEventListener('keydown', e => { keys[e.key] = true; if ((e.key === ' ' || e.key === 'Enter') && !running) start(); });
+addEventListener('keyup', e => { keys[e.key] = false; });
+addEventListener('pointermove', e => { if (running) basket.x = e.clientX; });
+addEventListener('pointerdown', e => { if (running) basket.x = e.clientX; });
+</script>
+</body>
+</html>
